@@ -29,6 +29,8 @@ if (!process.env.SESS_SECRET || !process.env.CLIENT_URL) {
   process.exit(1);
 }
 
+app.set("trust proxy", 1);
+
 const store = new SequelizeStore({
   db: db,
 });
@@ -40,7 +42,7 @@ app.use(
     saveUninitialized: false,
     store: store,
     cookie: {
-     secure: true || process.env.NODE_ENV === "production",
+     secure: process.env.NODE_ENV === "production",
       sameSite: "none",
       httpOnly: true,
       maxAge: 3 * 60 * 60 * 1000
