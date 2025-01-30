@@ -40,10 +40,10 @@ app.use(
     saveUninitialized: false,
     store: store,
     cookie: {
-      secure: true,
-      sameSite: "none",
-      httpOnly: true,
-      maxAge: 3 * 60 * 60 * 1000,
+     secure: process.env.NODE_ENV === "production",
+  sameSite: "none",
+  httpOnly: true,
+  maxAge: 3 * 60 * 60 * 1000
     },
   })
 );
