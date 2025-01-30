@@ -2,6 +2,8 @@ const IndividualClientDetails = require("../models/client_individual_details");
 const BusinessClientDetails = require("../models/client_business_details");
 
 const verifyClient = async (req, res, next) => {
+  console.log("Session: ",req.session); 
+  console.log("Session ID: ",req.session.clientId); 
   if (!req.session.clientId) {
     return res.status(401).json({ message: "Please login to your account!" });
   }
