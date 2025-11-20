@@ -113,13 +113,14 @@ const getWeeklyPaidLoan = async (req, res) => {
         [Sequelize.fn("DATE_FORMAT", Sequelize.col("paidAt"), "%Y-%u"), "week"],
         [Sequelize.fn("AVG", Sequelize.col("amountPaid")), "averageAmountPaid"],
       ],
-      group: [Sequelize.fn("DATE_FORMAT", Sequelize.col("paidAt"), "%Y-%u")],
-      order: [
-        [Sequelize.fn("DATE_FORMAT", Sequelize.col("paidAt"), "%Y-%u"), "ASC"],
-      ],
+      group: ["week"], // Use the alias instead of repeating Sequelize.fn
+      order: [["week", "ASC"]], // Use the alias in order
+      raw: true, // Ensures a cleaner JSON response
     });
+
     return res.status(200).json(weeklyAverage);
   } catch (error) {
+    console.error("Error fetching weekly paid loan:", error); // Logs error for debugging
     return res
       .status(500)
       .json({ message: "Internal server error: " + error.message });
@@ -136,13 +137,14 @@ const getMonthlyPaidLoan = async (req, res) => {
         ],
         [Sequelize.fn("AVG", Sequelize.col("amountPaid")), "averageAmountPaid"],
       ],
-      group: [Sequelize.fn("DATE_FORMAT", Sequelize.col("paidAt"), "%Y-%m")],
-      order: [
-        [Sequelize.fn("DATE_FORMAT", Sequelize.col("paidAt"), "%Y-%m"), "ASC"],
-      ],
+      group: ["month"], // Use the alias instead of repeating Sequelize.fn
+      order: [["month", "ASC"]], // Use the alias in order
+      raw: true, // Ensures a cleaner JSON response
     });
+
     return res.status(200).json(monthlyAverage);
   } catch (error) {
+    console.error("Error fetching monthly paid loan:", error); // Logs error for debugging
     return res
       .status(500)
       .json({ message: "Internal server error: " + error.message });
@@ -166,22 +168,23 @@ const makePayment = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({
         message:
-          "Payment can not be made for these loans, consult loan officer",
+          "Payment cannot be made for these loans, consult loan officer",
       });
     }
 
-    const EMIPaid = response.totalEMIPaid;
-    const totalPayment = response.totalPayment;
-    const paid = parseFloat(amountPaid);
-    const newEMIPaid = EMIPaid + paid;
-    const balance = totalPayment - newEMIPaid;
+    const EMIPaid = parseFloat(response.totalEMIPaid) || 0;
+const totalPayment = parseFloat(response.totalPayment) || 0;
+const paid = parseFloat(amountPaid) || 0;
+const newEMIPaid = EMIPaid + paid;
+const remainingAmount = parseFloat((totalPayment - newEMIPaid).toFixed(2)) || 0;
+
 
     const feedback = await ClientLoanPaymentHistory.create(
       {
         payment_uuid: response.uuid,
         amountPaid: paid,
-        remainingAmount: balance,
-        doneBy: "loan-officer"
+        remainingAmount: remainingAmount,
+        doneBy: "loan-officer",
       },
       { transaction }
     );
@@ -191,12 +194,17 @@ const makePayment = async (req, res) => {
       return res.status(400).json({ message: "Failed to make the payment" });
     }
 
-    if (newEMIPaid === totalPayment) {
-      await ClientLoanPayment.update(
-        { totalEMIPaid: newEMIPaid, status: "paid" },
-        { where: { uuid: payment_uuid }, transaction }
-      );
+    let status = "partial";
+    if (newEMIPaid >= totalPayment) {
+      status = "paid";
+    }
 
+    await ClientLoanPayment.update(
+      { totalEMIPaid: newEMIPaid, remainingAmount, status },
+      { where: { uuid: payment_uuid }, transaction }
+    );
+
+    if (status === "paid") {
       const loanApplication = await ClientLoanApplication.findOne({
         where: { uuid: response.loan_uuid },
         transaction,
@@ -210,9 +218,7 @@ const makePayment = async (req, res) => {
       const loanTerm = parseInt(loanApplication.loanTerm);
       const lateFees = loanApplication.latePaymentFee;
       const loanEMI = response.loanEMI;
-
       const latePaymentFee = parseFloat(lateFees / 12 / 100);
-
       const finalLatePaymentValue = loanEMI * latePaymentFee;
 
       const paymentHistory = await ClientLoanPaymentHistory.findAll({
@@ -237,7 +243,7 @@ const makePayment = async (req, res) => {
         await ClientLatePayment.create(
           {
             payment_uuid: response.uuid,
-            lateMonths: monthsTaken,
+            lateMonths: lateMonths,
             paymentFee: lateFee,
           },
           { transaction }
@@ -257,11 +263,6 @@ const makePayment = async (req, res) => {
           ),
         },
         { where: { client_uuid: loanApplication.client_uuid }, transaction }
-      );
-    } else {
-      await ClientLoanPayment.update(
-        { totalEMIPaid: newEMIPaid, status: "partial" },
-        { where: { uuid: payment_uuid }, transaction }
       );
     }
 
@@ -284,6 +285,7 @@ function calculateCreditScore(loanTerm, monthsTaken, totalPayment) {
   }
   return scoreAdjustment;
 }
+
 
 module.exports = {
   getMyPaymentHistory,
